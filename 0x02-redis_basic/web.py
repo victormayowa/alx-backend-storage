@@ -1,40 +1,38 @@
 #!/usr/bin/env python3
-"""
-Module with get_page function.
-"""
-import requests
+'''A module with tools.
+'''
 import redis
-from typing import Optional
+import requests
+from functools import wraps
+from typing import Callable
 
 
-def cache_key(url: str) -> str:
-    """
-    Generates cache key for the given URL.
-    """
-    return f"count:{url}"
+redis_store = redis.Redis()
+'''The module-level Redis instance.
+'''
 
 
+def data_cacher(method: Callable) -> Callable:
+    '''Caches the output of fetched data.
+    '''
+    @wraps(method)
+    def invoker(url) -> str:
+        '''The wrapper function.
+        '''
+        redis_store.incr(f'count:{url}')
+        result = redis_store.get(f'result:{url}')
+        if result:
+            return result.decode('utf-8')
+        result = method(url)
+        redis_store.set(f'count:{url}', 0)
+        redis_store.setex(f'result:{url}', 10, result)
+        return result
+    return invoker
+
+
+@data_cacher
 def get_page(url: str) -> str:
-    """
-    Obtains the HTML content of a URL and caches the result with a 10-second expiration time.
-    """
-    cache = redis.Redis()
-    count_key = cache_key(url)
-    
-    # Check if the result is cached
-    cached_result = cache.get(url)
-    if cached_result:
-        # Increment access count
-        cache.incr(count_key)
-        return cached_result.decode('utf-8')
+    '''Returns the content of
 
-    # Make the request
-    response = requests.get(url)
-
-    # Cache the result with a 10-second expiration time
-    cache.setex(url, 10, response.text)
-
-    # Increment access count
-    cache.incr(count_key)
-
-    return response.text
+    '''
+    return requests.get(url).text
